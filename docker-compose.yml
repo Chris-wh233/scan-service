@@ -1,0 +1,131 @@
+# Scan service stack
+#
+# Manages every component related to package scanning:
+#   - postgres              scan result storage
+#   - scan-results-portal   Scan Results Portal (web UI + Jenkins ingest API)
+#   - rpm-scan-agent        Jenkins inbound agent, cve-bin-tool RPM scan
+#   - srpm-scan-agent       planned, csmock SRPM scan
+#
+# Jenkins is NOT part of this stack. The scan components are expected to run
+# on their own host, so Jenkins is reached through the external JENKINS_*
+# URLs from .env.
+#
+# All services join the same compose network and address each other by
+# service name, for example the RPM agent posts scan events to
+# http://scan-results-portal:8080 (see SCAN_RESULTS_PORTAL_URL in .env).
+#
+# All configuration lives in this directory's .env, grouped by component with
+# comments. Component directories keep no .env of their own; compose injects
+# only the variables each service needs.
+
+name: scan-service
+
+services:
+  postgres:
+    image: lcr.loongnix.cn/library/postgres:14-alpine3.23
+    container_name: scan-results-portal-postgres
+    environment:
+      POSTGRES_DB: scanportal
+      POSTGRES_USER: scanportal
+      # See the "postgres" section in .env.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    volumes:
+      - scanportal_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scanportal -d scanportal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  scan-results-portal:
+    image: scan-results-portal:latest
+    container_name: scan-results-portal-service
+    build:
+      context: ./scan-results-portal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # See the "scan-results-portal" section in .env.
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set in .env}
+      JENKINS_BASE_URL: ${JENKINS_BASE_URL:?JENKINS_BASE_URL must be set in .env}
+      JENKINS_USER: ${JENKINS_USER:?JENKINS_USER must be set in .env}
+      JENKINS_TOKEN: ${JENKINS_TOKEN:?JENKINS_TOKEN must be set in .env}
+      SCAN_SERVICE_INGEST_TOKEN: ${SCAN_SERVICE_INGEST_TOKEN:?SCAN_SERVICE_INGEST_TOKEN must be set in .env}
+      JENKINS_JOBS: ${JENKINS_JOBS:-}
+      JENKINS_DISCOVERY_FOLDERS: ${JENKINS_DISCOVERY_FOLDERS:-}
+      JENKINS_DISCOVERY_RECURSIVE: ${JENKINS_DISCOVERY_RECURSIVE:-true}
+      RECENT_BUILD_LIMIT: ${RECENT_BUILD_LIMIT:-20}
+      SCAN_SERVICE_TITLE: ${SCAN_SERVICE_TITLE:-Scan Results Portal}
+      SCAN_SERVICE_CONFIG: /etc/scan-service/config.yaml
+    volumes:
+      - ./scan-results-portal/config:/etc/scan-service:ro
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://127.0.0.1:8080/readyz", timeout=5).read()
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  rpm-scan-agent:
+    image: rpm-scan-agent:latest
+    container_name: rpm-scan-agent
+    build:
+      context: ./rpm-scan-agent
+      args:
+        # See the "Jenkins" section in .env.
+        JENKINS_AGENT_JAR_URL: ${JENKINS_AGENT_JAR_URL:?JENKINS_AGENT_JAR_URL must be set in .env}
+    # See the "rpm-scan-agent" section in .env.
+    environment:
+      JENKINS_URL: ${JENKINS_URL:?JENKINS_URL must be set in .env}
+      JENKINS_AGENT_NAME: ${RPM_SCAN_AGENT_NAME:?RPM_SCAN_AGENT_NAME must be set in .env}
+      JENKINS_SECRET: ${RPM_SCAN_AGENT_SECRET:?RPM_SCAN_AGENT_SECRET must be set in .env}
+      JENKINS_AGENT_WORKDIR: /home/jenkins/agent
+      CVE_UPDATE_MODE: ${CVE_UPDATE_MODE:-never}
+      SCAN_RESULTS_PORTAL_URL: ${SCAN_RESULTS_PORTAL_URL:-http://scan-results-portal:8080}
+    volumes:
+      - /home/chris/proj/jenkins/data/rpm-scan-agent/cache/cve-bin-tool:/home/jenkins/.cache/cve-bin-tool
+      - /home/chris/proj/jenkins/data/rpm-scan-agent/workspace:/home/jenkins/agent
+      - /home/chris/proj/jenkins/data/inputs/rpm:/scan-input:ro
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # srpm-scan-agent（规划中）
+  #
+  # 实现该组件（见 srpm-scan-agent/README.md）后取消下面的注释，并在
+  # .env 的 "srpm-scan-agent" 分区填写 SRPM_SCAN_AGENT_NAME / SECRET。
+  # ---------------------------------------------------------------------------
+  # srpm-scan-agent:
+  #   image: srpm-scan-agent:latest
+  #   container_name: srpm-scan-agent
+  #   build:
+  #     context: ./srpm-scan-agent
+  #     args:
+  #       JENKINS_AGENT_JAR_URL: ${JENKINS_AGENT_JAR_URL:?JENKINS_AGENT_JAR_URL must be set in .env}
+  #   environment:
+  #     JENKINS_URL: ${JENKINS_URL:?JENKINS_URL must be set in .env}
+  #     JENKINS_AGENT_NAME: ${SRPM_SCAN_AGENT_NAME:?SRPM_SCAN_AGENT_NAME must be set in .env}
+  #     JENKINS_SECRET: ${SRPM_SCAN_AGENT_SECRET:?SRPM_SCAN_AGENT_SECRET must be set in .env}
+  #     JENKINS_AGENT_WORKDIR: /home/jenkins/agent
+  #     SCAN_RESULTS_PORTAL_URL: ${SCAN_RESULTS_PORTAL_URL:-http://scan-results-portal:8080}
+  #     CSMOCK_TOOLS: ${CSMOCK_TOOLS:-}
+  #     MOCK_CONFIG: ${MOCK_CONFIG:-}
+  #   volumes:
+  #     - /home/chris/proj/jenkins/data/srpm-scan-agent/workspace:/home/jenkins/agent
+  #     - /home/chris/proj/jenkins/data/srpm-scan-agent/mock:/var/lib/mock
+  #     - /home/chris/proj/jenkins/data/inputs/srpm:/scan-input:ro
+  #   restart: unless-stopped
+
+volumes:
+  # Explicit name keeps the database volume stable when the compose project
+  # is renamed or relocated.
+  scanportal_pgdata:
+    name: scanportal_pgdata

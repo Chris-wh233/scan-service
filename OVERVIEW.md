@@ -1,0 +1,122 @@
+# 扫描服务框架概览
+
+本文档描述当前扫描服务的整体逻辑框架：各组件的职责与存在形式、彼此的交互
+方式，以及与 Jenkins 的交互方式。内容与当前代码/部署一致；SRPM 部分目前是
+预留设计。
+
+## 一、整体形态
+
+| 栈 | 容器 | 说明 |
+| --- | --- | --- |
+| `scan-service` | `scan-results-portal-service`、`scan-results-portal-postgres`、`rpm-scan-agent`（`srpm-scan-agent` 已预留注释块） | 扫描相关组件 |
+
+与 jenkins 之间**没有共享网络**，Jenkins 通过宿主地址/端口访问；scan-service 栈内
+部通过 compose 服务名互访。
+
+## 二、各组件职责与存在形式
+
+### scan-results-portal（门户）
+
+- 存在形式：容器，对外发布 `8081:8080`；
+- 职责：接收扫描事件、经 Jenkins API 拉取并解析扫描结果、把结构化数据写入
+  PostgreSQL、页面展示与产物代理下载；
+- 它**不执行扫描**，也不读输入包。
+
+### postgres
+
+- 存在形式：容器 + 显式命名卷 `scanportal_pgdata`；
+- 职责：门户的持久化层。保存任务索引与结构化扫描结果（`srpm_scan_*` /
+  `rpm_scan_*` 表），**不保存原始产物**——原件始终留在 Jenkins。
+
+### rpm-scan-agent
+
+- 存在形式：Jenkins inbound agent 容器（JNLP/WebSocket 主动连 Jenkins），
+  挂载 CVE 漏洞库、agent 工作目录、只读输入目录；
+- 职责：执行 cve-bin-tool 扫描、把结果归档到 Jenkins、向门户上报事件；
+- 输入：宿主 `data/inputs/rpm` → 容器 `/scan-input`（只读），具体文件由
+  Pipeline 参数 `RPM_PATH` 指定。
+
+### srpm-scan-agent（规划中）
+
+- 已预留目录 `srpm-scan-agent/`、`docker-compose.yml` 注释块、`.env` 分区；
+- 约定与 rpm-scan-agent 同构，只是扫描工具换成 csmock；
+- 交互规则、归档要求、事件字段、配置键见
+  [`srpm-scan-agent/README.md`](srpm-scan-agent/README.md)。
+
+## 三、交互关系
+
+| # | 链路 | 方向 | 方式与凭据 |
+| --- | --- | --- | --- |
+| ① | agent ↔ Jenkins | agent **主动出站**注册 | `JENKINS_URL` + `JENKINS_AGENT_SECRET`，`agent.jar -webSocket`；Jenkins 不需要反向连 agent |
+| ② | 门户 → Jenkins | 门户**主动读** | `JENKINS_BASE_URL` + `JENKINS_USER`/`JENKINS_TOKEN`，读取 job/build/artifact；Jenkins 从不推送 |
+| ③ | agent → 门户 | agent 上报事件（只带元数据） | `POST http://scan-results-portal:8080/api/v1/rpm/events`，`Authorization: Bearer <SCAN_SERVICE_INGEST_TOKEN>`（Jenkins 凭据 `scan-service-ingest-token`） |
+| ④ | agent → Jenkins | 归档扫描产物 | `archiveArtifacts`，RPM 落在 `rpm-scan-artifacts/<sha256>/...` |
+| ⑤ | 门户 ↔ postgres | 内部 SQL | `DATABASE_URL` 指向服务名 `postgres:5432` |
+| ⑥ | 浏览器 → 门户 → Jenkins | 产物查看 | 门户自带代理接口，服务端持凭据去 Jenkins 取文件再回传，**访问者无需 Jenkins 凭据** |
+
+关键点：**门户得到的"扫描结果"不是 agent 推过来的，而是它自己按
+`job + build` 去 Jenkins 拉归档产物解析出来的**；agent 推送的只是"事件"
+（开始 / 结束 / 失败）。
+
+## 四、一次 RPM 扫描的完整时序
+
+1. Pipeline 在 agent 上启动，发送 `started` 事件 → 门户建任务，状态
+   `RUNNING`；
+2. Pipeline 调 `run-rpm-scan`，用 `/scan-input` 下的 RPM 执行 cve-bin-tool
+   （`CVE_UPDATE_MODE` 来自 `.env`）；
+3. 扫描产物写入 agent 工作目录，`archiveArtifacts` 归档到 Jenkins；
+4. Pipeline 发送 `completed`（或 `failed`）事件；
+5. 门户收到 `completed` 后，经 Jenkins API 取 `scan-manifest.json` 与
+   `scan-results.json`，校验 sha256 一致、扫描器退出码 ∈ {0,1}；
+6. 解析结果写库，任务置 `FINISHED`；页面展示，产物经门户代理访问。
+
+## 五、状态判定
+
+两种扫描共用四种状态：`RUNNING` / `FINISHED` / `FAILED` / `NOT_AVAILABLE`，
+但判定 `FINISHED` 的条件不同：
+
+- SRPM：结果 `.tar.xz` 能正常解压，且包含 6 个预期文件（`scan.ini`、
+  `scan-results-summary.txt`、`scan-results.js`、`scan-results.err`、
+  `scan-results.html`、`scan.log`），并满足 `scan.ini` 可解析、
+  `scan-results-summary.txt` 存在；
+- RPM：归档中存在 `scan-manifest.json` 与 `scan-results.json`，校验通过，且
+  cve-bin-tool 退出码为 0 或 1（1 表示发现漏洞）。
+
+`FAILED` 由扫描阶段失败的事件触发；结果缺失或不可解析记为
+`NOT_AVAILABLE`。
+
+## 六、配置与数据分布
+
+- **配置**：全部集中在 [`scan-service/.env`](.env)（按组件分区），由
+  compose 通过变量插值注入。Jenkins 侧不保存
+  环境配置，只在 Jenkins 中保存凭据 `scan-service-ingest-token`。
+- **宿主数据**：
+
+~~~text
+data/jenkins_home                              Jenkins 数据
+data/inputs/rpm                                待扫描 RPM（只读挂载到 agent）
+data/inputs/srpm                               待扫描 SRPM（预留）
+data/rpm-scan-agent/cache/cve-bin-tool         cve-bin-tool 漏洞库
+data/rpm-scan-agent/workspace                  rpm agent 工作目录
+data/srpm-scan-agent/workspace                 srpm agent 工作目录（预留）
+scanportal_pgdata                              PostgreSQL 数据（Docker 卷）
+~~~
+
+- **产物**：始终只保存在 Jenkins；门户数据库只存索引与结构化字段。
+
+## 七、SRPM 的现状
+
+框架完全复用上面这一套：门户的 srpm 接口、表结构、事件与归档校验都已就绪，缺的只有 
+`srpm-scan-agent` 本身及其 Pipeline。交互规则记录在 `srpm-scan-agent/README.md`。
+
+## 八、相关文件
+
+~~~text
+scan-service/
+├── docker-compose.yml              扫描栈统一编排（含 srpm-scan-agent 预留块）
+├── .env                            扫描栈统一配置（按组件分区）
+├── OVERVIEW.md                     本文档
+├── scan-results-portal/            门户源码与 README
+├── rpm-scan-agent/                 RPM 扫描 agent 源码与 README
+└── srpm-scan-agent/                SRPM 扫描 agent 规范（待实现）
+~~~

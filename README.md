@@ -1,0 +1,88 @@
+# Scan Service
+
+扫描服务栈。包含与软件包扫描有关的全部组件，由同目录下的
+`docker-compose.yml` 统一编排。Jenkins 不在此栈内。
+
+各组件的职责、存在形式与交互关系（含与 Jenkins 的交互）见
+[OVERVIEW.md](OVERVIEW.md)。
+
+## 组件
+
+| 服务 | 容器名称 | 作用 |
+| --- | --- | --- |
+| scan-results-portal | scan-results-portal-service | 扫描结果展示门户 + Jenkins 事件接收 API |
+| postgres | scan-results-portal-postgres | 任务索引与结构化扫描结果存储 |
+| rpm-scan-agent | rpm-scan-agent | Jenkins inbound agent，执行 cve-bin-tool RPM 漏洞扫描 |
+| srpm-scan-agent | （规划中） | Jenkins inbound agent，执行 csmock SRPM 扫描 |
+
+## 目录结构
+
+~~~text
+scan-service/
+├── docker-compose.yml              本栈的统一编排文件
+├── .env                            本栈统一配置（按组件分区，参考 .env.example）
+├── scan-results-portal/            门户源码、Dockerfile、config、migrations
+├── rpm-scan-agent/                 RPM 扫描 agent 源码与 Dockerfile
+└── srpm-scan-agent/                SRPM 扫描 agent（规划中，目前只有规范说明）
+~~~
+
+所有配置集中在本目录的 .env，由 compose 通过变量插值注入到对应容器。
+
+## 启动
+
+~~~bash
+cp .env.example .env
+docker compose up -d --build
+~~~
+
+只重建/重启单个组件：
+
+~~~bash
+docker compose up -d --build scan-results-portal
+docker compose up -d rpm-scan-agent
+~~~
+
+## 配置
+
+全部配置位于本目录的 `.env`，用注释按组件分区：
+
+| 分区 | 内容 |
+| --- | --- |
+| 外部 Jenkins | `JENKINS_URL`（agent 注册）、`JENKINS_BASE_URL`（门户读取）、`JENKINS_AGENT_JAR_URL`（agent 构建参数） |
+| postgres | `POSTGRES_PASSWORD` |
+| scan-results-portal | `DATABASE_URL`、`JENKINS_USER/TOKEN`、`SCAN_SERVICE_INGEST_TOKEN`、`JENKINS_JOBS`、页面标题等 |
+| rpm-scan-agent | `RPM_SCAN_AGENT_NAME/SECRET`、`CVE_UPDATE_MODE` |
+| srpm-scan-agent | `SRPM_SCAN_AGENT_NAME/SECRET`、`CSMOCK_TOOLS`、`MOCK_CONFIG`（规划中，见 .env.example） |
+
+`POSTGRES_PASSWORD` 与 `DATABASE_URL` 中的密码需要保持一致。
+`SCAN_RESULTS_PORTAL_URL` 由两个扫描 agent 共用。
+
+## 交互规则
+
+- 栈内组件在同一个 compose 网络上，通过服务名互相访问：
+  - 门户访问数据库：`postgres:5432`
+  - 扫描 agent 回传扫描事件到门户：`http://scan-results-portal:8080`
+- Jenkins 在栈外，通过各组件的 .env 访问：
+  - agent 注册：`JENKINS_URL`
+  - 门户读取构建与产物：`JENKINS_BASE_URL`
+- 对外暴露端口：门户 `8081`。
+
+## 持久化数据
+
+~~~text
+scanportal_pgdata                                        PostgreSQL 数据（显式固定卷名）
+/home/chris/proj/jenkins/data/rpm-scan-agent/cache/cve-bin-tool
+/home/chris/proj/jenkins/data/rpm-scan-agent/workspace
+/home/chris/proj/jenkins/data/inputs/rpm
+/home/chris/proj/jenkins/data/srpm-scan-agent/workspace   （预留）
+/home/chris/proj/jenkins/data/inputs/srpm                  （预留）
+~~~
+
+## 新增扫描 agent
+
+新增扫描 agent 时：在本目录建组件目录，在 `.env` 增加对应分区（不要给组件
+单独放 `.env`），并在 `docker-compose.yml` 中照已有 agent 增加一个服务块。
+
+`srpm-scan-agent` 的目录、配置键、交互规则、归档与事件格式都已在其
+[srpm-scan-agent/README.md](srpm-scan-agent/README.md) 中约定，`docker-compose.yml`
+与 `.env.example` 里也预留了（注释形式的）服务块和配置分区，按注释取消即可。
