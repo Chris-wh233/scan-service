@@ -50,7 +50,7 @@ docker compose up -d rpm-scan-agent
 | --- | --- |
 | 外部 Jenkins | `JENKINS_URL`（agent 注册）、`JENKINS_BASE_URL`（门户读取）、`JENKINS_AGENT_JAR_URL`（agent 构建参数） |
 | postgres | `POSTGRES_PASSWORD` |
-| scan-results-portal | `DATABASE_URL`、`JENKINS_USER/TOKEN`、`SCAN_SERVICE_INGEST_TOKEN`、`JENKINS_JOBS`、页面标题等 |
+| scan-results-portal | `DATABASE_URL`、`JENKINS_USER/TOKEN`、`SCAN_SERVICE_INGEST_TOKEN`、`RECENT_BUILD_LIMIT`、页面标题等 |
 | rpm-scan-agent | `RPM_SCAN_AGENT_NAME/SECRET`、`CVE_UPDATE_MODE` |
 | srpm-scan-agent | `SRPM_SCAN_AGENT_NAME/SECRET`、`CSMOCK_TOOLS`、`MOCK_CONFIG`（规划中，见 .env.example） |
 
@@ -66,6 +66,9 @@ docker compose up -d rpm-scan-agent
   - agent 注册：`JENKINS_URL`
   - 门户读取构建与产物：`JENKINS_BASE_URL`
 - 对外暴露端口：门户 `8081`。
+
+页面上 SRPM 与 RPM 的刷新按钮语义一致：重新同步门户中已登记且尚未进入终态
+（`RUNNING` / `NOT_AVAILABLE`）的任务，不会从 Jenkins 导入没有登记过的构建。
 
 ## 持久化数据
 
