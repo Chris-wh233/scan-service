@@ -93,11 +93,11 @@ scan.log
 
 ~~~text
 POST $SCAN_RESULTS_PORTAL_URL/api/v1/srpm/events
-Authorization: Bearer $SCAN_RESULTS_PORTAL_TOKEN
+Authorization: Bearer $SCAN_SERVICE_INGEST_TOKEN
 Content-Type: application/json
 ~~~
 
-`SCAN_RESULTS_PORTAL_TOKEN` 来自 Jenkins 凭据 `scan-service-ingest-token`
+`SCAN_SERVICE_INGEST_TOKEN` 来自 Jenkins 凭据 `scan-service-ingest-token`
 （Pipeline 里用 `credentials()` 取，不要写进 .env）。
 
 请求体字段：
@@ -193,7 +193,7 @@ pipeline {
 
     environment {
         // 门户地址由 agent 容器注入，不在 Pipeline 里写死
-        SCAN_RESULTS_PORTAL_TOKEN = credentials('scan-service-ingest-token')
+        SCAN_SERVICE_INGEST_TOKEN = credentials('scan-service-ingest-token')
     }
 
     stages {
