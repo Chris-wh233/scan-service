@@ -89,6 +89,8 @@ services:
       JENKINS_SECRET: ${RPM_SCAN_AGENT_SECRET:?RPM_SCAN_AGENT_SECRET must be set in .env}
       JENKINS_AGENT_WORKDIR: /home/jenkins/agent
       CVE_UPDATE_MODE: ${CVE_UPDATE_MODE:-never}
+      CVE_DB_UPDATE_LOCK_TIMEOUT: ${CVE_DB_UPDATE_LOCK_TIMEOUT:-3600}
+      CVE_DB_UPDATE_TIMEOUT: ${CVE_DB_UPDATE_TIMEOUT:-3600}
       SCAN_RESULTS_PORTAL_URL: ${SCAN_RESULTS_PORTAL_URL:-http://scan-results-portal:8080}
     volumes:
       # Host paths are deployment specific: see the "宿主机目录" section in .env.
@@ -96,6 +98,26 @@ services:
       - ${RPM_SCAN_AGENT_WORKSPACE_HOST_PATH:?RPM_SCAN_AGENT_WORKSPACE_HOST_PATH must be set in .env}:/home/jenkins/agent
       - ${RPM_SCAN_INPUT_HOST_PATH:?RPM_SCAN_INPUT_HOST_PATH must be set in .env}:/scan-input:ro
     restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # cve-db-update（一次性任务，不随 up -d 启动）
+  #
+  # 创建/更新 cve-bin-tool 漏洞库。扫描固定使用 --update never，更新必须单独
+  # 执行，否则多任务并发会同时写库。与 agent 共用同一个镜像（保证 cve-bin-tool
+  # 版本和库 schema 一致）与同一个库目录，并通过文件锁与扫描互斥。
+  #
+  # 用法（在 scan-service 目录执行，需先构建过镜像）：
+  #   docker compose --profile cve-db run --rm cve-db-update
+  # ---------------------------------------------------------------------------
+  cve-db-update:
+    image: rpm-scan-agent:latest
+    profiles: ["cve-db"]
+    entrypoint: ["update-cve-db"]
+    environment:
+      CVE_DB_UPDATE_LOCK_TIMEOUT: ${CVE_DB_UPDATE_LOCK_TIMEOUT:-3600}
+      CVE_DB_UPDATE_TIMEOUT: ${CVE_DB_UPDATE_TIMEOUT:-3600}
+    volumes:
+      - ${RPM_SCAN_CVE_DB_HOST_PATH:?RPM_SCAN_CVE_DB_HOST_PATH must be set in .env}:/data/cve-db
 
   # ---------------------------------------------------------------------------
   # srpm-scan-agent（规划中）

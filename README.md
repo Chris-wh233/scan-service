@@ -51,7 +51,7 @@ docker compose up -d rpm-scan-agent
 | 外部 Jenkins | `JENKINS_URL`（agent 注册）、`JENKINS_BASE_URL`（门户读取）、`JENKINS_AGENT_JAR_URL`（agent 构建参数） |
 | postgres | `POSTGRES_PASSWORD` |
 | scan-results-portal | `DATABASE_URL`、`JENKINS_USER/TOKEN`、`SCAN_SERVICE_INGEST_TOKEN`、`RECENT_BUILD_LIMIT`、页面标题等 |
-| rpm-scan-agent | `RPM_SCAN_AGENT_NAME/SECRET`、`CVE_UPDATE_MODE` |
+| rpm-scan-agent | `RPM_SCAN_AGENT_NAME/SECRET`、`CVE_UPDATE_MODE`、`CVE_DB_UPDATE_LOCK_TIMEOUT`、`CVE_DB_UPDATE_TIMEOUT` |
 | srpm-scan-agent | `SRPM_SCAN_AGENT_NAME/SECRET`、`CSMOCK_TOOLS`、`MOCK_CONFIG`（规划中，见 .env.example） |
 
 `POSTGRES_PASSWORD` 与 `DATABASE_URL` 中的密码需要保持一致。
