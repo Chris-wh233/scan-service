@@ -78,6 +78,8 @@ services:
     build:
       context: ./rpm-scan-agent
       args:
+        AGENT_UID: ${AGENT_UID:-1000}
+        AGENT_GID: ${AGENT_GID:-1000}
         # See the "Jenkins" section in .env.
         JENKINS_AGENT_JAR_URL: ${JENKINS_AGENT_JAR_URL:?JENKINS_AGENT_JAR_URL must be set in .env}
     # See the "rpm-scan-agent" section in .env.
@@ -89,9 +91,10 @@ services:
       CVE_UPDATE_MODE: ${CVE_UPDATE_MODE:-never}
       SCAN_RESULTS_PORTAL_URL: ${SCAN_RESULTS_PORTAL_URL:-http://scan-results-portal:8080}
     volumes:
-      - /home/chris/proj/jenkins/data/rpm-scan-agent/cache/cve-bin-tool:/home/jenkins/.cache/cve-bin-tool
-      - /home/chris/proj/jenkins/data/rpm-scan-agent/workspace:/home/jenkins/agent
-      - /home/chris/proj/jenkins/data/inputs/rpm:/scan-input:ro
+      # Host paths are deployment specific: see the "宿主机目录" section in .env.
+      - ${RPM_SCAN_CVE_DB_HOST_PATH:?RPM_SCAN_CVE_DB_HOST_PATH must be set in .env}:/data/cve-db
+      - ${RPM_SCAN_AGENT_WORKSPACE_HOST_PATH:?RPM_SCAN_AGENT_WORKSPACE_HOST_PATH must be set in .env}:/home/jenkins/agent
+      - ${RPM_SCAN_INPUT_HOST_PATH:?RPM_SCAN_INPUT_HOST_PATH must be set in .env}:/scan-input:ro
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
@@ -116,9 +119,9 @@ services:
   #     CSMOCK_TOOLS: ${CSMOCK_TOOLS:-}
   #     MOCK_CONFIG: ${MOCK_CONFIG:-}
   #   volumes:
-  #     - /home/chris/proj/jenkins/data/srpm-scan-agent/workspace:/home/jenkins/agent
-  #     - /home/chris/proj/jenkins/data/srpm-scan-agent/mock:/var/lib/mock
-  #     - /home/chris/proj/jenkins/data/inputs/srpm:/scan-input:ro
+  #     - ${SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH:?SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH must be set in .env}:/home/jenkins/agent
+  #     - ${SRPM_SCAN_MOCK_HOST_PATH:?SRPM_SCAN_MOCK_HOST_PATH must be set in .env}:/var/lib/mock
+  #     - ${SRPM_SCAN_INPUT_HOST_PATH:?SRPM_SCAN_INPUT_HOST_PATH must be set in .env}:/scan-input:ro
   #   restart: unless-stopped
 
 volumes:

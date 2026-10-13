@@ -72,14 +72,13 @@ docker compose up -d rpm-scan-agent
 
 ## 持久化数据
 
-~~~text
-scanportal_pgdata                                        PostgreSQL 数据（显式固定卷名）
-/home/chris/proj/jenkins/data/rpm-scan-agent/cache/cve-bin-tool
-/home/chris/proj/jenkins/data/rpm-scan-agent/workspace
-/home/chris/proj/jenkins/data/inputs/rpm
-/home/chris/proj/jenkins/data/srpm-scan-agent/workspace   （预留）
-/home/chris/proj/jenkins/data/inputs/srpm                  （预留）
-~~~
+| 数据 | 位置 |
+| --- | --- |
+| PostgreSQL | Docker 卷 `scanportal_pgdata`（显式固定卷名） |
+| cve-bin-tool 漏洞库 | `.env` 的 `RPM_SCAN_CVE_DB_HOST_PATH` |
+| rpm agent 工作目录 | `.env` 的 `RPM_SCAN_AGENT_WORKSPACE_HOST_PATH` |
+| 待扫描 RPM | `.env` 的 `RPM_SCAN_INPUT_HOST_PATH` |
+| srpm agent 相关工作目录 | `.env` 的 `SRPM_SCAN_*_HOST_PATH`（预留） |
 
 ## 新增扫描 agent
 

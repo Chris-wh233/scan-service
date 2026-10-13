@@ -93,13 +93,14 @@
 - **宿主数据**：
 
 ~~~text
-data/jenkins_home                              Jenkins 数据
-data/inputs/rpm                                待扫描 RPM（只读挂载到 agent）
-data/inputs/srpm                               待扫描 SRPM（预留）
-data/rpm-scan-agent/cache/cve-bin-tool         cve-bin-tool 漏洞库
-data/rpm-scan-agent/workspace                  rpm agent 工作目录
-data/srpm-scan-agent/workspace                 srpm agent 工作目录（预留）
-scanportal_pgdata                              PostgreSQL 数据（Docker 卷）
+data/jenkins_home                        Jenkins 数据（相对仓库根目录）
+scanportal_pgdata                        PostgreSQL 数据（Docker 命名卷）
+
+以下目录由 .env 的「宿主机目录」分区指定（bind mount 进容器）：
+RPM_SCAN_CVE_DB_HOST_PATH                cve-bin-tool 漏洞库 → /data/cve-db
+RPM_SCAN_AGENT_WORKSPACE_HOST_PATH       rpm agent 工作目录 → /home/jenkins/agent
+RPM_SCAN_INPUT_HOST_PATH                 待扫描 RPM → /scan-input（只读）
+SRPM_SCAN_*_HOST_PATH                    srpm agent 的对应目录（预留）
 ~~~
 
 - **产物**：始终只保存在 Jenkins；门户数据库只存索引与结构化字段。

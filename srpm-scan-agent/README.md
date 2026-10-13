@@ -18,11 +18,14 @@ Portal 不执行 csmock，只消费事件和 Jenkins 归档产物。
 
 ## 目录与挂载规范
 
-| 宿主目录 | 容器路径 | 权限 | 用途 |
+| `.env` 中的宿主路径 | 容器路径 | 权限 | 用途 |
 | --- | --- | --- | --- |
-| `/home/chris/proj/jenkins/data/inputs/srpm` | `/scan-input` | ro | 待扫描的 `.src.rpm` |
-| `/home/chris/proj/jenkins/data/srpm-scan-agent/workspace` | `/home/jenkins/agent` | rw | agent 工作目录（remoting + 每个 job 的工作区） |
-| `/home/chris/proj/jenkins/data/srpm-scan-agent/mock` | `/var/lib/mock` | rw | csmock/mock 的 chroot 缓存（按需增加） |
+| `SRPM_SCAN_INPUT_HOST_PATH` | `/scan-input` | ro | 待扫描的 `.src.rpm` |
+| `SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH` | `/home/jenkins/agent` | rw | agent 工作目录（remoting + 每个 job 的工作区） |
+| `SRPM_SCAN_MOCK_HOST_PATH` | `/var/lib/mock` | rw | csmock/mock 的 chroot 缓存（按需增加） |
+
+宿主路径在 `.env` 中填写（不要写死在 compose 里），其属主需对容器内
+jenkins（uid 1000）可读写。
 
 容器路径与 `rpm-scan-agent` 保持一致（都用 `/scan-input`），因为每个 agent 只挂自己那一份输入。
 
