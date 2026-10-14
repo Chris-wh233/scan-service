@@ -8,7 +8,7 @@
 
 | 栈 | 容器 | 说明 |
 | --- | --- | --- |
-| `scan-service` | `scan-results-portal-service`、`scan-results-portal-postgres`、`rpm-scan-agent`（`srpm-scan-agent` 已预留注释块） | 扫描相关组件 |
+| `scan-service` | `scan-results-portal-service`、`scan-results-portal-postgres`、`rpm-scan-agent`、`srpm-scan-agent` | 扫描相关组件 |
 
 与 jenkins 之间**没有共享网络**，Jenkins 通过宿主地址/端口访问；scan-service 栈内
 部通过 compose 服务名互访。
@@ -30,18 +30,18 @@
 
 ### rpm-scan-agent
 
-- 存在形式：Jenkins inbound agent 容器（JNLP/WebSocket 主动连 Jenkins），
-  挂载 CVE 漏洞库、agent 工作目录、只读输入目录；
-- 职责：执行 cve-bin-tool 扫描、把结果归档到 Jenkins、向门户上报事件；
+- 存在形式：Jenkins inbound agent 容器，挂载 CVE 漏洞库、agent 工作目录、只读输入目录；
+- 职责：执行 cve-bin-tool 扫描，向门户上报事件；
 - 输入：宿主 `data/inputs/rpm` → 容器 `/scan-input`（只读），具体文件由
   Pipeline 参数 `RPM_PATH` 指定。
 
-### srpm-scan-agent（规划中）
+### srpm-scan-agent
 
-- 已预留目录 `srpm-scan-agent/`、`docker-compose.yml` 注释块、`.env` 分区；
-- 约定与 rpm-scan-agent 同构，只是扫描工具换成 csmock；
-- 交互规则、归档要求、事件字段、配置键见
-  [`srpm-scan-agent/README.md`](srpm-scan-agent/README.md)。
+- 存在形式：Jenkins inbound agent 容器，自身不含 csmock/mock，通过挂载的 `/var/run/docker.sock`
+  为每次扫描起一个 csmock 容器，用完即删；
+- 职责：调度 csmock 容器进行扫描，向门户上报事件；
+- 输入：宿主 `data/inputs/srpm` → 容器 `/scan-input`（只读），具体文件由
+  Pipeline 参数 `SRPM_PATH` 指定。
 
 ## 三、交互关系
 
@@ -100,24 +100,20 @@ scanportal_pgdata                        PostgreSQL 数据（Docker 命名卷）
 RPM_SCAN_CVE_DB_HOST_PATH                cve-bin-tool 漏洞库 → /data/cve-db
 RPM_SCAN_AGENT_WORKSPACE_HOST_PATH       rpm agent 工作目录 → /home/jenkins/agent
 RPM_SCAN_INPUT_HOST_PATH                 待扫描 RPM → /scan-input（只读）
-SRPM_SCAN_*_HOST_PATH                    srpm agent 的对应目录（预留）
+SRPM_SCAN_INPUT_HOST_PATH                待扫描 SRPM → /scan-input（只读）
+SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH      srpm agent 工作目录 → /home/jenkins/agent
 ~~~
 
 - **产物**：始终只保存在 Jenkins；门户数据库只存索引与结构化字段。
 
-## 七、SRPM 的现状
-
-框架完全复用上面这一套：门户的 srpm 接口、表结构、事件与归档校验都已就绪，缺的只有 
-`srpm-scan-agent` 本身及其 Pipeline。交互规则记录在 `srpm-scan-agent/README.md`。
-
-## 八、相关文件
+## 七、相关文件
 
 ~~~text
 scan-service/
-├── docker-compose.yml              扫描栈统一编排（含 srpm-scan-agent 预留块）
+├── docker-compose.yml              扫描栈统一编排
 ├── .env                            扫描栈统一配置（按组件分区）
 ├── OVERVIEW.md                     本文档
-├── scan-results-portal/            门户源码与 README
-├── rpm-scan-agent/                 RPM 扫描 agent 源码与 README
-└── srpm-scan-agent/                SRPM 扫描 agent 规范（待实现）
+├── scan-results-portal/            门户源码与 Dockerfile
+├── rpm-scan-agent/                 RPM 扫描 agent 源码与 Dockerfile
+└── srpm-scan-agent/                SRPM 扫描 agent 源码与 Dockerfile
 ~~~

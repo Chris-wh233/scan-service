@@ -13,7 +13,7 @@
 | scan-results-portal | scan-results-portal-service | 扫描结果展示门户 + Jenkins 事件接收 API |
 | postgres | scan-results-portal-postgres | 任务索引与结构化扫描结果存储 |
 | rpm-scan-agent | rpm-scan-agent | Jenkins inbound agent，执行 cve-bin-tool RPM 漏洞扫描 |
-| srpm-scan-agent | （规划中） | Jenkins inbound agent，执行 csmock SRPM 扫描 |
+| srpm-scan-agent | srpm-scan-agent | Jenkins inbound agent，调度一次性 csmock 容器执行 SRPM 扫描 |
 
 ## 目录结构
 
@@ -23,7 +23,7 @@ scan-service/
 ├── .env                            本栈统一配置（按组件分区，参考 .env.example）
 ├── scan-results-portal/            门户源码、Dockerfile、config、migrations
 ├── rpm-scan-agent/                 RPM 扫描 agent 源码与 Dockerfile
-└── srpm-scan-agent/                SRPM 扫描 agent（规划中，目前只有规范说明）
+└── srpm-scan-agent/                SRPM 扫描 agent 源码与 Dockerfile
 ~~~
 
 所有配置集中在本目录的 .env，由 compose 通过变量插值注入到对应容器。
@@ -52,7 +52,7 @@ docker compose up -d rpm-scan-agent
 | postgres | `POSTGRES_PASSWORD` |
 | scan-results-portal | `DATABASE_URL`、`JENKINS_USER/TOKEN`、`SCAN_SERVICE_INGEST_TOKEN`、`RECENT_BUILD_LIMIT`、页面标题等 |
 | rpm-scan-agent | `RPM_SCAN_AGENT_NAME/SECRET`、`CVE_UPDATE_MODE`、`CVE_DB_UPDATE_LOCK_TIMEOUT`、`CVE_DB_UPDATE_TIMEOUT` |
-| srpm-scan-agent | `SRPM_SCAN_AGENT_NAME/SECRET`、`CSMOCK_TOOLS`、`MOCK_CONFIG`（规划中，见 .env.example） |
+| srpm-scan-agent | `SRPM_SCAN_AGENT_NAME/SECRET`、`CSMOCK_IMAGE`、`MOCK_CONFIG`、`CSMOCK_TOOLS`、`DOCKER_GID` |
 
 `POSTGRES_PASSWORD` 与 `DATABASE_URL` 中的密码需要保持一致。
 `SCAN_RESULTS_PORTAL_URL` 由两个扫描 agent 共用。
@@ -74,17 +74,7 @@ docker compose up -d rpm-scan-agent
 
 | 数据 | 位置 |
 | --- | --- |
-| PostgreSQL | Docker 卷 `scanportal_pgdata`（显式固定卷名） |
+| PostgreSQL | Docker 卷 `scanportal_pgdata` |
 | cve-bin-tool 漏洞库 | `.env` 的 `RPM_SCAN_CVE_DB_HOST_PATH` |
 | rpm agent 工作目录 | `.env` 的 `RPM_SCAN_AGENT_WORKSPACE_HOST_PATH` |
-| 待扫描 RPM | `.env` 的 `RPM_SCAN_INPUT_HOST_PATH` |
-| srpm agent 相关工作目录 | `.env` 的 `SRPM_SCAN_*_HOST_PATH`（预留） |
-
-## 新增扫描 agent
-
-新增扫描 agent 时：在本目录建组件目录，在 `.env` 增加对应分区（不要给组件
-单独放 `.env`），并在 `docker-compose.yml` 中照已有 agent 增加一个服务块。
-
-`srpm-scan-agent` 的目录、配置键、交互规则、归档与事件格式都已在其
-[srpm-scan-agent/README.md](srpm-scan-agent/README.md) 中约定，`docker-compose.yml`
-与 `.env.example` 里也预留了（注释形式的）服务块和配置分区，按注释取消即可。
+| srpm agent 工作目录 | `.env` 的 `SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH` |

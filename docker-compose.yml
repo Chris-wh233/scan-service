@@ -120,31 +120,47 @@ services:
       - ${RPM_SCAN_CVE_DB_HOST_PATH:?RPM_SCAN_CVE_DB_HOST_PATH must be set in .env}:/data/cve-db
 
   # ---------------------------------------------------------------------------
-  # srpm-scan-agent（规划中）
+  # srpm-scan-agent
   #
-  # 实现该组件（见 srpm-scan-agent/README.md）后取消下面的注释，并在
-  # .env 的 "srpm-scan-agent" 分区填写 SRPM_SCAN_AGENT_NAME / SECRET。
+  # 调度型 agent：本身不含 csmock/mock，通过挂进来的 docker.sock 起一次性
+  # csmock 容器完成扫描（见 srpm-scan-agent/README.md）。
+  #
+  # **不挂载 mock 缓存目录**：每个一次性容器使用自己的 /var/lib/mock，这样
+  # mock 的 buildroot.lock 不会跨扫描互斥，多个 SRPM 扫描可以并发；代价是每次
+  # 扫描都要在容器内初始化 chroot。
+  #
+  # 两个 *_HOST_PATH 既作为挂载源，也注入容器环境：因为 `docker run -v` 的源
+  # 路径由宿主 daemon 解析，脚本必须知道宿主路径（容器内路径传给 -v 会静默
+  # 建出空目录）。
   # ---------------------------------------------------------------------------
-  # srpm-scan-agent:
-  #   image: srpm-scan-agent:latest
-  #   container_name: srpm-scan-agent
-  #   build:
-  #     context: ./srpm-scan-agent
-  #     args:
-  #       JENKINS_AGENT_JAR_URL: ${JENKINS_AGENT_JAR_URL:?JENKINS_AGENT_JAR_URL must be set in .env}
-  #   environment:
-  #     JENKINS_URL: ${JENKINS_URL:?JENKINS_URL must be set in .env}
-  #     JENKINS_AGENT_NAME: ${SRPM_SCAN_AGENT_NAME:?SRPM_SCAN_AGENT_NAME must be set in .env}
-  #     JENKINS_SECRET: ${SRPM_SCAN_AGENT_SECRET:?SRPM_SCAN_AGENT_SECRET must be set in .env}
-  #     JENKINS_AGENT_WORKDIR: /home/jenkins/agent
-  #     SCAN_RESULTS_PORTAL_URL: ${SCAN_RESULTS_PORTAL_URL:-http://scan-results-portal:8080}
-  #     CSMOCK_TOOLS: ${CSMOCK_TOOLS:-}
-  #     MOCK_CONFIG: ${MOCK_CONFIG:-}
-  #   volumes:
-  #     - ${SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH:?SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH must be set in .env}:/home/jenkins/agent
-  #     - ${SRPM_SCAN_MOCK_HOST_PATH:?SRPM_SCAN_MOCK_HOST_PATH must be set in .env}:/var/lib/mock
-  #     - ${SRPM_SCAN_INPUT_HOST_PATH:?SRPM_SCAN_INPUT_HOST_PATH must be set in .env}:/scan-input:ro
-  #   restart: unless-stopped
+  srpm-scan-agent:
+    image: srpm-scan-agent:latest
+    container_name: srpm-scan-agent
+    build:
+      context: ./srpm-scan-agent
+      args:
+        JENKINS_AGENT_JAR_URL: ${JENKINS_AGENT_JAR_URL:?JENKINS_AGENT_JAR_URL must be set in .env}
+    # 让 jenkins 用户能访问 docker.sock（其属组 gid 由 .env 的 DOCKER_GID 指定）
+    group_add:
+      - "${DOCKER_GID:?DOCKER_GID must be set in .env}"
+    environment:
+      JENKINS_URL: ${JENKINS_URL:?JENKINS_URL must be set in .env}
+      JENKINS_AGENT_NAME: ${SRPM_SCAN_AGENT_NAME:?SRPM_SCAN_AGENT_NAME must be set in .env}
+      JENKINS_SECRET: ${SRPM_SCAN_AGENT_SECRET:?SRPM_SCAN_AGENT_SECRET must be set in .env}
+      JENKINS_AGENT_WORKDIR: /home/jenkins/agent
+      SCAN_RESULTS_PORTAL_URL: ${SCAN_RESULTS_PORTAL_URL:-http://scan-results-portal:8080}
+      CSMOCK_IMAGE: ${CSMOCK_IMAGE:-lcr.loongnix.cn/library/csmock:3.8.7}
+      MOCK_CONFIG: ${MOCK_CONFIG:-loongnix-server-23-loongarch64}
+      CSMOCK_TOOLS: ${CSMOCK_TOOLS:-cppcheck,clang,gcc,shellcheck}
+      SRPM_SCAN_INPUT_HOST_PATH: ${SRPM_SCAN_INPUT_HOST_PATH:?SRPM_SCAN_INPUT_HOST_PATH must be set in .env}
+      SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH: ${SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH:?SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH must be set in .env}
+    volumes:
+      - ${SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH:?SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH must be set in .env}:/home/jenkins/agent
+      - ${SRPM_SCAN_INPUT_HOST_PATH:?SRPM_SCAN_INPUT_HOST_PATH must be set in .env}:/scan-input:ro
+      # 调起一次性 csmock 容器所需的宿主 Docker 访问
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
+    restart: unless-stopped
 
 volumes:
   # Explicit name keeps the database volume stable when the compose project
