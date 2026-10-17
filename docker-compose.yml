@@ -78,8 +78,8 @@ services:
     build:
       context: ./rpm-scan-agent
       args:
-        AGENT_UID: ${AGENT_UID:-1000}
-        AGENT_GID: ${AGENT_GID:-1000}
+        AGENT_UID: ${AGENT_UID:?AGENT_UID must be set in .env}
+        AGENT_GID: ${AGENT_GID:?AGENT_GID must be set in .env}
         # See the "Jenkins" section in .env.
         JENKINS_AGENT_JAR_URL: ${JENKINS_AGENT_JAR_URL:?JENKINS_AGENT_JAR_URL must be set in .env}
     # See the "rpm-scan-agent" section in .env.
@@ -139,6 +139,8 @@ services:
     build:
       context: ./srpm-scan-agent
       args:
+        AGENT_UID: ${AGENT_UID:?AGENT_UID must be set in .env}
+        AGENT_GID: ${AGENT_GID:?AGENT_GID must be set in .env}
         JENKINS_AGENT_JAR_URL: ${JENKINS_AGENT_JAR_URL:?JENKINS_AGENT_JAR_URL must be set in .env}
     # 让 jenkins 用户能访问 docker.sock（其属组 gid 由 .env 的 DOCKER_GID 指定）
     group_add:
