@@ -1,8 +1,7 @@
 # 扫描服务框架概览
 
 本文档描述当前扫描服务的整体逻辑框架：各组件的职责与存在形式、彼此的交互
-方式，以及与 Jenkins 的交互方式。内容与当前代码/部署一致；SRPM 部分目前是
-预留设计。
+方式，以及与 Jenkins 的交互方式。
 
 ## 一、整体形态
 
@@ -33,7 +32,7 @@
 - 存在形式：Jenkins inbound agent 容器，挂载 CVE 漏洞库、agent 工作目录、只读输入目录；
 - 职责：执行 cve-bin-tool 扫描，向门户上报事件；
 - 输入：宿主 `data/inputs/rpm` → 容器 `/scan-input`（只读），具体文件由
-  Pipeline 参数 `RPM_PATH` 指定。
+  Pipeline 参数 `RPM_NAME`（仅文件名）指定。
 
 ### srpm-scan-agent
 
@@ -41,18 +40,18 @@
   为每次扫描起一个 csmock 容器，用完即删；
 - 职责：调度 csmock 容器进行扫描，向门户上报事件；
 - 输入：宿主 `data/inputs/srpm` → 容器 `/scan-input`（只读），具体文件由
-  Pipeline 参数 `SRPM_PATH` 指定。
+  Pipeline 参数 `SRPM_NAME`（仅文件名）指定。
 
 ## 三、交互关系
 
 | # | 链路 | 方向 | 方式与凭据 |
 | --- | --- | --- | --- |
-| ① | agent ↔ Jenkins | agent **主动出站**注册 | `JENKINS_URL` + `JENKINS_AGENT_SECRET`，`agent.jar -webSocket`；Jenkins 不需要反向连 agent |
+| ① | agent ↔ Jenkins | agent **主动出站**注册 | `JENKINS_URL` + `JENKINS_AGENT_SECRET`，`agent.jar -webSocket` |
 | ② | 门户 → Jenkins | 门户**主动读** | `JENKINS_BASE_URL` + `JENKINS_USER`/`JENKINS_TOKEN`，读取 job/build/artifact；Jenkins 从不推送 |
 | ③ | agent → 门户 | agent 上报事件（只带元数据） | `POST http://scan-results-portal:8080/api/v1/rpm/events`，`Authorization: Bearer <SCAN_SERVICE_INGEST_TOKEN>`（Jenkins 凭据 `scan-service-ingest-token`） |
-| ④ | agent → Jenkins | 归档扫描产物 | `archiveArtifacts`，RPM 落在 `rpm-scan-artifacts/<sha256>/...` |
+| ④ | agent → Jenkins | 归档扫描产物 | `archiveArtifacts`，(S)RPM 落在 `(s)rpm-scan-artifacts/<build_number>/...` |
 | ⑤ | 门户 ↔ postgres | 内部 SQL | `DATABASE_URL` 指向服务名 `postgres:5432` |
-| ⑥ | 浏览器 → 门户 → Jenkins | 产物查看 | 门户自带代理接口，服务端持凭据去 Jenkins 取文件再回传，**访问者无需 Jenkins 凭据** |
+| ⑥ | 门户 → Jenkins | 产物查看 | 门户自带代理接口，服务端持凭据去 Jenkins 取文件再回传，**访问者无需 Jenkins 凭据** |
 
 关键点：**门户得到的"扫描结果"不是 agent 推过来的，而是它自己按
 `job + build` 去 Jenkins 拉归档产物解析出来的**；agent 推送的只是"事件"
@@ -62,10 +61,10 @@
 
 1. Pipeline 在 agent 上启动，发送 `started` 事件 → 门户建任务，状态
    `RUNNING`；
-2. Pipeline 调 `run-rpm-scan`，用 `/scan-input` 下的 RPM 执行 cve-bin-tool
-   （`CVE_UPDATE_MODE` 来自 `.env`）；
+2. Pipeline 把 RPM 文件名传给 `run-rpm-scan`，agent 在 `/scan-input` 下解析后
+   执行 cve-bin-tool；
 3. 扫描产物写入 agent 工作目录，`archiveArtifacts` 归档到 Jenkins；
-4. Pipeline 发送 `completed`（或 `failed`）事件；
+4. Pipeline 调用 agent 的 `send-rpm-event` 上报 `started` / `completed` / `failed` 事件；
 5. 门户收到 `completed` 后，经 Jenkins API 取 `scan-manifest.json` 与
    `scan-results.json`，校验 sha256 一致、扫描器退出码 ∈ {0,1}；
 6. 解析结果写库，任务置 `FINISHED`；页面展示，产物经门户代理访问。
@@ -98,8 +97,8 @@ scanportal_pgdata                        PostgreSQL 数据（Docker 命名卷）
 
 以下目录由 .env 的「宿主机目录」分区指定（bind mount 进容器）：
 RPM_SCAN_CVE_DB_HOST_PATH                cve-bin-tool 漏洞库 → /data/cve-db
-RPM_SCAN_AGENT_WORKSPACE_HOST_PATH       rpm agent 工作目录 → /home/jenkins/agent
 RPM_SCAN_INPUT_HOST_PATH                 待扫描 RPM → /scan-input（只读）
+RPM_SCAN_AGENT_WORKSPACE_HOST_PATH       rpm agent 工作目录 → /home/jenkins/agent
 SRPM_SCAN_INPUT_HOST_PATH                待扫描 SRPM → /scan-input（只读）
 SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH      srpm agent 工作目录 → /home/jenkins/agent
 ~~~
@@ -111,7 +110,7 @@ SRPM_SCAN_AGENT_WORKSPACE_HOST_PATH      srpm agent 工作目录 → /home/jenki
 ~~~text
 scan-service/
 ├── docker-compose.yml              扫描栈统一编排
-├── .env                            扫描栈统一配置（按组件分区）
+├── .env                            扫描栈统一配置
 ├── OVERVIEW.md                     本文档
 ├── scan-results-portal/            门户源码与 Dockerfile
 ├── rpm-scan-agent/                 RPM 扫描 agent 源码与 Dockerfile
