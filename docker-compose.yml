@@ -4,7 +4,7 @@
 #   - postgres              scan result storage
 #   - scan-results-portal   Scan Results Portal (web UI + Jenkins ingest API)
 #   - rpm-scan-agent        Jenkins inbound agent, cve-bin-tool RPM scan
-#   - srpm-scan-agent       planned, csmock SRPM scan
+#   - srpm-scan-agent       Jenkins inbound agent, csmock SRPM scan
 #
 # Jenkins is NOT part of this stack. The scan components are expected to run
 # on their own host, so Jenkins is reached through the external JENKINS_*
